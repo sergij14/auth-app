@@ -13,6 +13,7 @@ app.get("/", (req, res) => {
 
 const users = Datastore.create("Users.db");
 const usersRefreshTokens = Datastore.create("Users.RefreshTokens.db");
+const usersInvalidTokens = Datastore.create("Users.InvalidTokens.db");
 
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -181,6 +182,26 @@ app.post("/api/auth/refresh-token", async (req, res) => {
   }
 });
 
+app.get("/api/auth/logout", isAuthenticated, async (req, res) => {
+  try {
+    await usersRefreshTokens.removeMany({
+      userId: req.user.id,
+    });
+
+    await usersInvalidTokens.insert({
+      accessToken: req.accessToken.value,
+      expirationTime: req.accessToken.exp,
+      userId: req.user.id,
+    });
+
+    return res.status(204).send();
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err.message ? err.message : "Internal server error" });
+  }
+});
+
 app.get("/api/users/current", isAuthenticated, async (req, res) => {
   try {
     const user = await users.findOne({ _id: req.user.id });
@@ -232,6 +253,14 @@ async function isAuthenticated(req, res, next) {
     return res.status(401).json({ message: "Access token not found" });
   }
 
+  const userInvalidToken = await usersInvalidTokens.findOne({ accessToken });
+
+  if (userInvalidToken) {
+    return res
+      .status(401)
+      .json({ message: "Access token invalid", code: "AccessTokenInvalid" });
+  }
+
   try {
     const decodedAccessToken = jwt.verify(
       accessToken,
@@ -240,6 +269,10 @@ async function isAuthenticated(req, res, next) {
 
     req.user = {
       id: decodedAccessToken.userId,
+    };
+    req.accessToken = {
+      value: accessToken,
+      exp: decodedAccessToken.exp,
     };
     next();
   } catch (err) {
