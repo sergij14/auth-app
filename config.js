@@ -1,0 +1,3 @@
+module.exports = {
+  ACCESS_TOKEN_SECRET: "MY_ACCESS_TOKEN_SECRET",
+};

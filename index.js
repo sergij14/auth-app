@@ -1,6 +1,8 @@
 const express = require("express");
 const Datastore = require("nedb-promises");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const config = require("./config");
 const app = express();
 
 app.use(express.json());
@@ -33,7 +35,54 @@ app.post("/api/auth/register", async (req, res) => {
   } catch (err) {
     console.log(err);
 
-    return res.status(500).json({ message: "Internal server error" });
+    return res
+      .status(500)
+      .json({ message: err.message ? err.message : "Internal server error" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { password, email } = req.body;
+
+    if (!password || !email) {
+      return res.status(422).json({ message: "Please fill all the fields" });
+    }
+
+    const user = await users.findOne({ email });
+
+    if (!user) {
+      return res.status(401).json({ message: "Email or password is invalid" });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+
+    if (!passwordMatch) {
+      return res.status(401).json({ message: "Email or password is invalid" });
+    }
+
+    const accessToken = jwt.sign(
+      {
+        userId: user._id,
+      },
+      config.ACCESS_TOKEN_SECRET,
+      {
+        subject: "accessApi",
+        expiresIn: "1h",
+      }
+    );
+
+    return res.status(200).json({
+      id: user._id,
+      email: user.email,
+      accessToken,
+    });
+  } catch (err) {
+    console.log(err);
+
+    return res
+      .status(500)
+      .json({ message: err.message ? err.message : "Internal server error" });
   }
 });
 
