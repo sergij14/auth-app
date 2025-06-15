@@ -12,6 +12,7 @@ app.get("/", (req, res) => {
 });
 
 const users = Datastore.create("Users.db");
+const usersRefreshTokens = Datastore.create("Users.RefreshTokens.db");
 
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -72,17 +73,107 @@ app.post("/api/auth/login", async (req, res) => {
       config.ACCESS_TOKEN_SECRET,
       {
         subject: "accessApi",
-        expiresIn: "1h",
+        expiresIn: config.ACCESS_TOKEN_EXPIRES_IN,
       }
     );
+
+    const refreshToken = jwt.sign(
+      {
+        userId: user._id,
+      },
+      config.REFRESH_TOKEN_SECRET,
+      {
+        subject: "refreshToken",
+        expiresIn: config.REFRESH_TOKEN_EXPIRES_IN,
+      }
+    );
+
+    await usersRefreshTokens.insert({
+      refreshToken,
+      userId: user._id,
+    });
 
     return res.status(200).json({
       id: user._id,
       email: user.email,
       accessToken,
+      refreshToken,
     });
   } catch (err) {
     console.log(err);
+
+    return res
+      .status(500)
+      .json({ message: err.message ? err.message : "Internal server error" });
+  }
+});
+
+app.post("/api/auth/refresh-token", async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Refresh token not found" });
+    }
+
+    const decodedRefreshToken = jwt.verify(
+      refreshToken,
+      config.REFRESH_TOKEN_SECRET
+    );
+
+    const userRefreshToken = await usersRefreshTokens.findOne({
+      refreshToken,
+      userId: decodedRefreshToken.userId,
+    });
+
+    if (!userRefreshToken) {
+      return res
+        .status(401)
+        .json({ message: "Refresh token invalid or expired" });
+    }
+
+    await usersRefreshTokens.remove({ _id: userRefreshToken._id });
+
+    const accessToken = jwt.sign(
+      {
+        userId: decodedRefreshToken.userId,
+      },
+      config.ACCESS_TOKEN_SECRET,
+      {
+        subject: "accessApi",
+        expiresIn: config.ACCESS_TOKEN_EXPIRES_IN,
+      }
+    );
+
+    const newRefreshToken = jwt.sign(
+      {
+        userId: decodedRefreshToken.userId,
+      },
+      config.REFRESH_TOKEN_SECRET,
+      {
+        subject: "refreshToken",
+        expiresIn: config.REFRESH_TOKEN_EXPIRES_IN,
+      }
+    );
+
+    await usersRefreshTokens.insert({
+      newRefreshToken,
+      userId: decodedRefreshToken.userId,
+    });
+
+    return res.status(200).json({
+      accessToken,
+      refreshToken: newRefreshToken,
+    });
+  } catch (err) {
+    if (
+      err instanceof jwt.TokenExpiredError ||
+      err instanceof jwt.JsonWebTokenError
+    ) {
+      return res
+        .status(401)
+        .json({ message: "Refresh token invalid or expired" });
+    }
 
     return res
       .status(500)
@@ -152,7 +243,19 @@ async function isAuthenticated(req, res, next) {
     };
     next();
   } catch (err) {
-    return res.status(401).json({ message: "Access token invalid or expired" });
+    if (err instanceof jwt.TokenExpiredError) {
+      return res
+        .status(401)
+        .json({ message: "Access token expired", code: "AccessTokenExpired" });
+    } else if (err instanceof jwt.JsonWebTokenError) {
+      return res
+        .status(401)
+        .json({ message: "Access token invalid", code: "AccessTokenInvalid" });
+    }
+
+    return res
+      .status(500)
+      .json({ message: err.message ? err.message : "Internal server error" });
   }
 }
 
