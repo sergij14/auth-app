@@ -15,7 +15,7 @@ const users = Datastore.create("Users.db");
 
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { password, email } = req.body;
+    const { password, email, role } = req.body;
 
     if (!password || !email) {
       return res.status(422).json({ message: "Please fill all the fields" });
@@ -28,7 +28,11 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await users.insert({ password: hashedPassword, email });
+    const newUser = await users.insert({
+      password: hashedPassword,
+      email,
+      role: role ?? "member",
+    });
     return res
       .status(201)
       .json({ message: "User registered", id: newUser._id });
@@ -86,7 +90,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.get("/api/users/current", authMiddleware, async (req, res) => {
+app.get("/api/users/current", isAuthenticated, async (req, res) => {
   try {
     const user = await users.findOne({ _id: req.user.id });
 
@@ -101,7 +105,36 @@ app.get("/api/users/current", authMiddleware, async (req, res) => {
   }
 });
 
-async function authMiddleware(req, res, next) {
+app.get("/api/admin", isAuthenticated, isAuthorized(["admin"]), (req, res) => {
+  return res.status(200).json({
+    message: "Only admins can access this route!",
+  });
+});
+
+app.get(
+  "/api/moderator",
+  isAuthenticated,
+  isAuthorized(["admin", "moderator"]),
+  (req, res) => {
+    return res.status(200).json({
+      message: "Only admins & moderators can access this route!",
+    });
+  }
+);
+
+function isAuthorized(roles = []) {
+  return async function (req, res, next) {
+    const user = await users.findOne({ _id: req.user.id });
+
+    if (!user || !roles.includes(user.role)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    next();
+  };
+}
+
+async function isAuthenticated(req, res, next) {
   const accessToken = req.headers.authorization;
 
   if (!accessToken) {
