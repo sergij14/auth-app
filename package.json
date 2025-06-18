@@ -1,8 +1,8 @@
 {
   "name": "auth-app",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon -w ."
+    "start": "node server.js",
+    "dev": "nodemon -w server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
