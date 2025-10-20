@@ -3,7 +3,13 @@ const config = require("../config");
 const { users, usersInvalidTokens } = require("../db");
 
 async function isAuthenticated(req, res, next) {
-  const accessToken = req.headers.authorization;
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Access token not found" });
+  }
+
+  const accessToken = authHeader.split(" ")[1];
 
   if (!accessToken) {
     return res.status(401).json({ message: "Access token not found" });
